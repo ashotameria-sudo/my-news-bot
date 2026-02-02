@@ -1,91 +1,104 @@
 import requests
 from bs4 import BeautifulSoup
 import os
+import json
 from datetime import datetime
 
 # --- CONFIGURATION ---
 URLS = [
-    "https://mamul.am/am/news/", 
+    "https://mamul.am/am/news",  # You can add more URLs here
 ]
 DB_FILE = "seen_links.txt"
 
-# Telegram Config
+# Telegram Secrets from GitHub
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 def send_telegram(message):
-    if not TOKEN or not CHAT_ID: return
+    if not TOKEN or not CHAT_ID:
+        print("Telegram secrets not set.")
+        return
     url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
-    payload = {"chat_id": CHAT_ID, "text": message, "parse_mode": "HTML"}
-    requests.post(url, data=payload)
-
-def is_published_today(article_element):
-    """
-    Checks if the article has today's date. 
-    Note: You may need to adjust the tag names ('time' or 'span') 
-    based on your specific news site's HTML.
-    """
-    today_str = datetime.now().strftime("%Y-%m-%d") # e.g., 2026-02-02
-    
-    # Common news site patterns:
-    # 1. Look for <time datetime="2026-02-02">
-    time_tag = article_element.find('time')
-    if time_tag and time_tag.get('datetime'):
-        return today_str in time_tag.get('datetime')
-    
-    # 2. Look for text like "Feb 2, 2026" inside the element
-    today_human = datetime.now().strftime("%b %-d") # e.g., Feb 2
-    if today_human in article_element.get_text():
-        return True
-        
-    return False
+    payload = {"chat_id": CHAT_ID, "text": message, "parse_mode": "HTML", "disable_web_page_preview": False}
+    try:
+        requests.post(url, data=payload)
+    except Exception as e:
+        print(f"Error sending to Telegram: {e}")
 
 def get_today_articles(url):
-    new_found = []
+    today_str = datetime.now().strftime("%Y-%m-%d") # e.g. 2026-02-02
+    new_links = []
+    
     try:
         headers = {'User-Agent': 'Mozilla/5.0'}
-        response = requests.get(url, headers=headers, timeout=10)
+        response = requests.get(url, headers=headers, timeout=15)
         soup = BeautifulSoup(response.text, 'html.parser')
         
-        # Most news sites wrap articles in <article> or <div class="post">
-        # Adjust 'article' to match your site's structure
-        articles = soup.find_all(['article', 'div'], class_=True) 
+        # 1. Find all news items on the page (usually in <div> or <li>)
+        # We look for all links first
+        all_links = soup.find_all('a', href=True)
         
-        for item in articles:
-            link_tag = item.find('a', href=True)
-            if link_tag and is_published_today(item):
-                link = link_tag['href']
-                full_link = link if link.startswith('http') else f"{url.rstrip('/')}/{link.lstrip('/')}"
-                new_found.append(full_link)
+        for a in all_links:
+            href = a['href']
+            # Only process actual news links (specific to mamul.am structure)
+            if "/news/" in href:
+                full_link = href if href.startswith('http') else f"https://mamul.am{href}"
                 
-        return set(new_found)
+                # 2. Visit the article page to check the HIDDEN date Published
+                # This ensures 100% accuracy based on the code you found
+                art_res = requests.get(full_link, headers=headers, timeout=5)
+                art_soup = BeautifulSoup(art_res.text, 'html.parser')
+                
+                scripts = art_soup.find_all('script', type='application/ld+json')
+                is_today = False
+                
+                for script in scripts:
+                    try:
+                        data = json.loads(script.string)
+                        # Check for the code you found: "datePublished": "2026-02-02..."
+                        pub_date = data.get('datePublished', '')
+                        if pub_date.startswith(today_str):
+                            is_today = True
+                            break
+                    except:
+                        continue
+                
+                if is_today:
+                    new_links.append(full_link)
+
+        return set(new_links)
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"Error scanning {url}: {e}")
         return set()
 
 def main():
-    # Load history
+    # Load history to avoid duplicates
     if os.path.exists(DB_FILE):
         with open(DB_FILE, 'r') as f:
             seen = set(line.strip() for line in f)
     else:
         seen = set()
 
-    today_links = []
+    found_today = []
     for url in URLS:
         links = get_today_articles(url)
-        for l in links:
-            if l not in seen:
-                today_links.append(l)
-                seen.add(l)
+        for link in links:
+            if link not in seen:
+                found_today.append(link)
+                seen.add(link)
 
-    if today_links:
-        msg = f"<b>Today's New Articles ({datetime.now().strftime('%d %b')}):</b>\n\n"
-        msg += "\n".join(today_links[:10])
+    if found_today:
+        # Send to Telegram (Limit to 10 to avoid spam)
+        msg = f"<b>📰 New Articles Today ({datetime.now().strftime('%Y-%m-%d')}):</b>\n\n"
+        msg += "\n\n".join(found_today[:10])
         send_telegram(msg)
         
+        # Save history
         with open(DB_FILE, 'w') as f:
-            for item in seen: f.write(item + "\n")
+            for item in seen:
+                f.write(item + "\n")
+    else:
+        print("No new articles found for today.")
 
 if __name__ == "__main__":
     main()
