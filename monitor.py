@@ -4,7 +4,7 @@ import os
 
 # --- CONFIGURATION ---
 URLS = [
-    "https://mamul.am",  # Change these to your actual sites
+    "https://mamul.am/news",  # Change these to your actual sites
 ]
 DB_FILE = "seen_links.txt"
 
