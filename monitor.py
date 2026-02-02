@@ -4,8 +4,8 @@ import os
 
 # --- CONFIGURATION ---
 URLS = [
-    "https://hetq.am/",
-    "https://hraparak.am/"
+    
+    "https://mamul.am/"
 ]
 DB_FILE = "seen_links.txt"
 
