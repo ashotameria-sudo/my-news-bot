@@ -22,8 +22,8 @@ jobs:
 
       - name: Run script
         env:
-          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKENN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_IDD }}
         run: python monitor.py
 
       - name: Commit changes  # This saves the "seen_links.txt" so it remembers history
